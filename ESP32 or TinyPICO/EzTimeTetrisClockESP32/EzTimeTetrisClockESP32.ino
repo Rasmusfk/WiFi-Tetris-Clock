@@ -14,6 +14,8 @@
 // ----------------------------
 
 #include <WiFi.h>
+#include <Ticker.h>
+Ticker animation_ticker;
 
 // ----------------------------
 // Additional Libraries - each one of these will need to be installed.
@@ -22,8 +24,8 @@
 // Enabling this is meant to have a performance
 // improvement but its worse for me.
 // https://github.com/2dom/PxMatrix/pull/103
-//#define double_buffer
 
+#define double_buffer
 #include <PxMatrix.h>
 // The library for controlling the LED Matrix
 // At time of writing this my changes for the TinyPICO
@@ -55,7 +57,6 @@
 // Initialize Wifi connection to the router
 char ssid[] = "SSID";     // your network SSID (name)
 char password[] = "password"; // your network key
-
 // Set a timezone using the following list
 // https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 #define MYTIMEZONE "Europe/Dublin"
@@ -77,13 +78,12 @@ bool forceRefresh = true;
 #define P_C 18
 #define P_D 5
 #define P_E 15
-#define P_OE 26 //TinyPICO
-//#define P_OE 2 // Generic ESP32
+//#define P_OE 26 //TinyPICO
+#define P_OE 2 // Generic ESP32
 // ---------------------
 
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 hw_timer_t * timer = NULL;
-hw_timer_t * animationTimer = NULL;
 
 // PxMATRIX display(32,16,P_LAT, P_OE,P_A,P_B,P_C);
 // PxMATRIX display(64,32,P_LAT, P_OE,P_A,P_B,P_C,P_D);
@@ -105,9 +105,13 @@ String lastDisplayedAmPm = "";
 
 // This method is needed for driving the display
 void IRAM_ATTR display_updater() {
+#ifndef double_buffer
   portENTER_CRITICAL_ISR(&timerMux);
+#endif  
   display.display(70);
-  portEXIT_CRITICAL_ISR(&timerMux);
+#ifndef double_buffer
+  portEXIT_CRITICAL_ISR(&timerMux);	
+#endif  
 }
 
 // This method is for controlling the tetris library draw calls
@@ -120,11 +124,14 @@ void animationHandler()
   // Not clearing the display and redrawing it when you
   // dont need to improves how the refresh rate appears
   if (!finishedAnimating) {
-#ifdef double_buffer
-    display.fillScreen(tetris.tetrisBLACK);
-#else
+//#ifdef double_buffer
+ //   display.fillScreen(tetris.tetrisBLACK);
+//#else
     display.clearDisplay();
-#endif
+//#ifdef double_buffer
+//	yield();
+//#endif	
+//#endif
     //display.fillScreen(tetris.tetrisBLACK);
     if (displayIntro) {
       finishedAnimating = tetris.drawText(1, 21);
@@ -213,8 +220,8 @@ void setup() {
   // as it will crash!
 
   // Intialise display library
-  display.begin(16, SPI_BUS_CLK, 27, SPI_BUS_MISO, SPI_BUS_SS); // TinyPICO
-  //display.begin(16); // Generic ESP32
+  //display.begin(16, SPI_BUS_CLK, 27, SPI_BUS_MISO, SPI_BUS_SS); // TinyPICO
+  display.begin(16); // Generic ESP32
   display.flushDisplay();
 
   // Setup timer for driving display
@@ -223,11 +230,11 @@ void setup() {
   timerAlarmWrite(timer, 2000, true);
   timerAlarmEnable(timer);
   yield();
-#ifdef double_buffer
-  display.fillScreen(tetris.tetrisBLACK);
-#else
+//#ifdef double_buffer
+//  display.fillScreen(tetris.tetrisBLACK);
+//#else
   display.clearDisplay();
-#endif
+//#endif
 
   // "connecting"
   drawConnecting(5, 10);
@@ -246,11 +253,11 @@ void setup() {
   Serial.print(F("Time in your set timezone:         "));
   Serial.println(myTZ.dateTime());
 
-#ifdef double_buffer
-  display.fillScreen(tetris.tetrisBLACK);
-#else
+//#ifdef double_buffer
+//  display.fillScreen(tetris.tetrisBLACK);
+//#else
   display.clearDisplay();
-#endif
+//#endif
   // "Powered By"
   drawIntro(6, 12);
 #ifdef double_buffer
@@ -260,18 +267,15 @@ void setup() {
 
   // Start the Animation Timer
   tetris.setText("TINY PICO");
-  animationTimer = timerBegin(1, 80, true);
-  timerAttachInterrupt(animationTimer, &animationHandler, true);
-  timerAlarmWrite(animationTimer, 100000, true);
-  timerAlarmEnable(animationTimer);
+  animation_ticker.attach(0.02, animationHandler);
 
   // Wait for the animation to finish
   while (!finishedAnimating)
   {
     delay(10); //waiting for intro to finish
+    yield();
   }
-  delay(2000);
-  finishedAnimating = false;
+
   displayIntro = false;
   tetris.scale = 2;
 }
@@ -331,6 +335,7 @@ void handleColonAfterAnimation() {
   // (this could be better!)
   int y = 26 - (TETRIS_Y_DROP_DEFAULT * tetris.scale);
   tetris.drawColon(x, y, colour);
+  display.showBuffer();
 }
 
 
